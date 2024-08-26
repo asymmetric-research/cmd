@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/go-cmd/cmd"
+	"github.com/asymmetric-research/cmd"
 )
 
 func main() {

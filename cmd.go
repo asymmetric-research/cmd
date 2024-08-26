@@ -177,6 +177,10 @@ type Options struct {
 	// value DEFAULT_LINE_BUFFER_SIZE is usually sufficient, but if
 	// ErrLineBufferOverflow errors occur, try increasing the size with this field.
 	LineBufferSize uint
+
+	// IgnoreIncompleteLines configures the 'ignoreIncompleteLines' option of the command's
+	// OutputStream's. If set to true, lines that do not end in '\n' are ignored.
+	IgnoreIncompleteLines bool
 }
 
 // NewCmdOptions creates a new Cmd with options. The command is not started
@@ -214,11 +218,11 @@ func NewCmdOptions(options Options, name string, args ...string) *Cmd {
 
 	if options.Streaming {
 		c.Stdout = make(chan string, DEFAULT_STREAM_CHAN_SIZE)
-		c.stdoutStream = NewOutputStream(c.Stdout)
+		c.stdoutStream = NewOutputStream(c.Stdout, options.IgnoreIncompleteLines)
 		c.stdoutStream.SetLineBufferSize(int(options.LineBufferSize))
 
 		c.Stderr = make(chan string, DEFAULT_STREAM_CHAN_SIZE)
-		c.stderrStream = NewOutputStream(c.Stderr)
+		c.stderrStream = NewOutputStream(c.Stderr, options.IgnoreIncompleteLines)
 		c.stderrStream.SetLineBufferSize(int(options.LineBufferSize))
 	}
 
@@ -682,22 +686,24 @@ func (e ErrLineBufferOverflow) Error() string {
 // While runnableCmd is running, lines are sent to the channel as soon as they
 // are written and newline-terminated by the command.
 type OutputStream struct {
-	streamChan chan string
-	bufSize    int
-	buf        []byte
-	lastChar   int
+	streamChan            chan string
+	bufSize               int
+	buf                   []byte
+	lastChar              int
+	ignoreIncompleteLines bool
 }
 
 // NewOutputStream creates a new streaming output on the given channel. The
 // caller must begin receiving on the channel before the command is started.
 // The OutputStream never closes the channel.
-func NewOutputStream(streamChan chan string) *OutputStream {
+func NewOutputStream(streamChan chan string, ignoreIncompleteLines bool) *OutputStream {
 	out := &OutputStream{
 		streamChan: streamChan,
 		// --
-		bufSize:  DEFAULT_LINE_BUFFER_SIZE,
-		buf:      make([]byte, DEFAULT_LINE_BUFFER_SIZE),
-		lastChar: 0,
+		bufSize:               DEFAULT_LINE_BUFFER_SIZE,
+		buf:                   make([]byte, DEFAULT_LINE_BUFFER_SIZE),
+		lastChar:              0,
+		ignoreIncompleteLines: ignoreIncompleteLines,
 	}
 	return out
 }
@@ -738,7 +744,13 @@ func (rw *OutputStream) Write(p []byte) (n int, err error) {
 		firstChar += newlineOffset + 1
 	}
 
+	// if the stream (p) does not end in a '\n', then we will have firstChar < n
 	if firstChar < n {
+		// if we are ignoring incomplete lines, then we can just exit here
+		if rw.ignoreIncompleteLines {
+			return // implicit
+		}
+
 		remain := len(p[firstChar:])
 		bufFree := len(rw.buf[rw.lastChar:])
 		if remain > bufFree {
