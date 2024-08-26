@@ -1,4 +1,4 @@
-module github.com/go-cmd/cmd
+module github.com/asymmetric-research/cmd
 
 go 1.20
 
